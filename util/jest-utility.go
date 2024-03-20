@@ -4,10 +4,29 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"os/exec"
-	"path/filepath"
-	"strings"
 )
+
+type TestResults struct {
+	TestResults []TestResult `json:"testResults"`
+}
+type TestResult struct {
+	Name string `json:"name"`
+}
+
+type CoverageMetrics struct {
+	Total   int     `json:"total"`
+	Covered int     `json:"covered"`
+	Skipped int     `json:"skipped"`
+	Percent float64 `json:"pct"`
+}
+
+type CoverageData struct {
+	Total map[string]CoverageMetrics `json:"total"`
+	Files map[string]CoverageMetrics `json:""`
+}
 
 type FileCoverage struct {
 	FileShortPath string `json:"fileShortPath"`
@@ -17,47 +36,63 @@ type FileCoverage struct {
 type CoverageSummary struct {
 	Data []FileCoverage `json:"data"`
 }
+type TestFile struct {
+	RootDir      string
+	Path         string
+	Dependencies []string
+	Content      string
+	coverageData CoverageData
+}
 
-func findRelatedSourceFiles(testFile string, rootDir string) ([]string, error) {
-	cmd := exec.Command("npx", "jest", testFile, "--json", "--coverage","--coverageFile=coverage/coverage.json" "--coverageReporters=json-summary")
-	cmd.Dir = rootDir
+func (t *TestFile) GetCoverageData() ([]string, error) {
+	t.GetRelatedComponents()
+	cmd := exec.Command("jest",t.Path, "--json", "--coverage", "--outputFile=coverage/coverage.json", "--coverageReporters=json-summary", "--collectCoverageFrom='[" +
+		t.GetStringDependencies()+"]'")
+	cmd.Dir = t.RootDir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	output, err := cmd.Output()
+	_, err := cmd.Output()
 	if err != nil {
 		fmt.Println("Jest error output:", stderr.String())
 		return nil, fmt.Errorf("failed to run Jest: %v", err)
 	}
-	for x, _ := range output {
-		fmt.Println(string(rune(x)))
-	}
 
-	var coverageSummary CoverageSummary
-	err = json.Unmarshal(output, &coverageSummary)
+	jsonData, err := ioutil.ReadFile(rootDir + "/coverage/coverage.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse coverage summary: %v", err)
+		log.Fatalf("Error reading JSON file: %v", err)
 	}
 
-	affectedSourceFiles := make([]string, 0)
-	for _, fileCoverage := range coverageSummary.Data {
-		if fileCoverage.CoveredLines > 0 {
-			affectedSourceFiles = append(affectedSourceFiles, filepath.Join(rootDir, fileCoverage.FileShortPath))
-		}
+	var testResults TestResults
+	if err := json.Unmarshal(jsonData, &testResults); err != nil {
+		log.Fatalf("Error unmarshaling JSON data: %v", err)
 	}
-
-	return affectedSourceFiles, nil
+	var affectedFiles []string
+	for _, result := range testResults.TestResults {
+		fmt.Println("File Path:", result.Name)
+		affectedFiles = append(affectedFiles, result.Name)
+	}
+	return affectedFiles, nil
 }
 
-func main() {
-	testFileOrPattern := "/Users/yohannes/playground/hackathon/react-typescript-jest-enzyme-testing/src/foo.test.js"
-	rootDir := "/Users/yohannes/playground/hackathon/react-typescript-jest-enzyme-testing"
-
-	affectedSourceFiles, err := findRelatedSourceFiles(testFileOrPattern, rootDir)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
+func (t *TestFile) GetStringDependencies() string {
+	projectDir= t.RootDir+""
+	var output string
+	for _, dependency:= range t.Dependencies{
+		output+=
 	}
 
-	fmt.Println("Source files affected by", testFileOrPattern)
-	fmt.Println(strings.Join(affectedSourceFiles, "\n"))
 }
+
+//func main() {
+//	testFileOrPattern := "/Users/yohannes/playground/hackathon/react-typescript-jest-enzyme-testing/src/foo.test.js"
+//	rootDir := "/Users/yohannes/playground/hackathon/react-typescript-jest-enzyme-testing"
+//
+//	affectedSourceFiles, err := findRelatedSourceFiles(testFileOrPattern, rootDir)
+//	if err != nil {
+//		fmt.Println("Error:", err)
+//		return
+//	}
+//
+//	fmt.Println("Source files affected by", testFileOrPattern)
+//	fmt.Println(strings.Join(affectedSourceFiles, "\n"))
+//}
